@@ -187,7 +187,7 @@ jobs:
           export FRONTEND_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend:main
           docker compose up -d
       - name: Wait for services
-        run: sleep 30
+        run: sleep 60
       - name: Integration tests check
         run: |
           curl -f http://localhost:8000/docs || exit 1
