@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import App from '../App'
 
 describe('App Component', () => {
@@ -10,7 +10,7 @@ describe('App Component', () => {
 
   it('renders backend message after fetch', async () => {
     const mockResponse = { message: 'Hello from Vitest!' }
-    global.fetch.mockResolvedValueOnce({
+    globalThis.fetch.mockResolvedValueOnce({
       json: async () => mockResponse,
     })
 
