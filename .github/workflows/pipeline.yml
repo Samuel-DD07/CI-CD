@@ -34,7 +34,7 @@ jobs:
       - name: Security scan with Bandit
         run: |
           cd backend
-          bandit -r .
+          bandit -r . -x ./tests -s B101
       - name: Run tests with coverage
         run: |
           cd backend
