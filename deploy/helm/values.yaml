@@ -29,15 +29,14 @@ ingress:
   className: "nginx"
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
-  hosts:
-    - host: myapp.com
-      paths:
-        - path: /api
-          pathType: Prefix
-          service: backend
-        - path: /
-          pathType: Prefix
-          service: frontend
+  host: myapp.com
+  paths:
+    - path: /api
+      pathType: Prefix
+      service: backend
+    - path: /
+      pathType: Prefix
+      service: frontend
   tls: []
   #  - secretName: myapp-tls
   #    hosts:

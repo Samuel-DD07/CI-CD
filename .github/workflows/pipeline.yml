@@ -213,7 +213,7 @@ jobs:
           helm upgrade --install review-${{ github.event.number }} ./deploy/helm \
             --set backend.image.tag=pr-${{ github.event.number }} \
             --set frontend.image.tag=pr-${{ github.event.number }} \
-            --set ingress.hosts[0].host=review-${{ github.event.number }}.myapp.com
+            --set ingress.host=review-${{ github.event.number }}.myapp.com
 
   # --- DEPLOY STAGING (Main) ---
   deploy-staging:
@@ -234,7 +234,7 @@ jobs:
           helm upgrade --install staging ./deploy/helm \
             --set backend.image.tag=main \
             --set frontend.image.tag=main \
-            --set ingress.hosts[0].host=staging.myapp.com
+            --set ingress.host=staging.myapp.com
       - name: ZAP DAST Scan
         uses: zaproxy/action-full-scan@v0.9.0
         with:
@@ -276,4 +276,4 @@ jobs:
           helm upgrade --install production ./deploy/helm \
             --set backend.image.tag=${{ github.ref_name }} \
             --set frontend.image.tag=${{ github.ref_name }} \
-            --set ingress.hosts[0].host=myapp.com
+            --set ingress.host=myapp.com
