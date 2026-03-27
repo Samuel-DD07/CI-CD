@@ -1,0 +1,228 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # --- LINT & TEST STAGE ---
+  lint-test-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install .[dev]
+      - name: Lint with Ruff
+        run: |
+          cd backend
+          ruff check .
+      - name: Security scan with Bandit
+        run: |
+          cd backend
+          bandit -r .
+      - name: Run tests with coverage
+        run: |
+          cd backend
+          pytest
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage.xml
+
+  lint-test-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+      - name: Lint with ESLint
+        run: |
+          cd frontend
+          npm run lint
+      - name: Run tests with coverage
+        run: |
+          cd frontend
+          npm run test:coverage
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend/coverage/
+
+  # --- BUILD STAGE ---
+  build-push:
+    needs: [lint-test-backend, lint-test-frontend]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.component }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=sha
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./${{ matrix.component }}
+          push: true
+          tags: ${{ id.meta.outputs.tags }}
+          labels: ${{ id.meta.outputs.labels }}
+
+  # --- SCAN STAGE (Main & Tags) ---
+  vulnerability-scan:
+    needs: build-push
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.component }}:sha-${{ github.sha }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+  # --- INTEGRATION TESTS (Main) ---
+  integration-tests:
+    needs: build-push
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run docker-compose stack
+        run: |
+          cd deploy
+          docker-compose up -d
+      - name: Wait for services
+        run: sleep 30 # Simple wait for demo, better use healthchecks in a script
+      - name: Integration tests check
+        run: |
+          # Simple check if backend is responding
+          curl -f http://localhost:8000/docs || exit 1
+      - name: Tear down
+        run: cd deploy && docker-compose down
+
+  # --- DEPLOY REVIEW APP (PR) ---
+  deploy-review:
+    needs: build-push
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    environment:
+      name: review-PR-${{ github.event.number }}
+      url: https://review-${{ github.event.number }}.myapp.com
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+      - name: Deploy Review App
+        run: |
+          helm upgrade --install review-${{ github.event.number }} ./deploy/helm \
+            --set backend.image.tag=pr-${{ github.event.number }} \
+            --set frontend.image.tag=pr-${{ github.event.number }} \
+            --set ingress.hosts[0].host=review-${{ github.event.number }}.myapp.com
+
+  # --- DEPLOY STAGING (Main) ---
+  deploy-staging:
+    needs: [integration-tests, vulnerability-scan]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://staging.myapp.com
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+      - name: Deploy to Staging
+        run: |
+          helm upgrade --install staging ./deploy/helm \
+            --set backend.image.tag=main \
+            --set frontend.image.tag=main \
+            --set ingress.hosts[0].host=staging.myapp.com
+      - name: ZAP DAST Scan
+        uses: zaproxy/action-full-scan@v0.9.0
+        with:
+          target: 'https://staging.myapp.com'
+
+  # --- E2E TESTS (Tags) ---
+  e2e-tests:
+    needs: vulnerability-scan
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Playwright
+        run: |
+          cd frontend
+          npm ci
+          npx playwright install --with-deps
+      - name: Run E2E Tests
+        run: |
+          cd frontend
+          npm run test:e2e
+
+  # --- DEPLOY PRODUCTION (Tags) ---
+  deploy-production:
+    needs: e2e-tests
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://myapp.com
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+      - name: Deploy to Production
+        run: |
+          helm upgrade --install production ./deploy/helm \
+            --set backend.image.tag=${{ github.ref_name }} \
+            --set frontend.image.tag=${{ github.ref_name }} \
+            --set ingress.hosts[0].host=myapp.com

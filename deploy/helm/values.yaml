@@ -1,0 +1,52 @@
+# Global values for myapp
+replicaCount: 1
+
+backend:
+  image:
+    repository: ghcr.io/user/backend
+    pullPolicy: IfNotPresent
+    # Overridden by CI
+    tag: "latest"
+  service:
+    type: ClusterIP
+    port: 8000
+  env:
+    DATABASE_URL: "" # To be provided via secret/config
+    REDIS_URL: ""
+
+frontend:
+  image:
+    repository: ghcr.io/user/frontend
+    pullPolicy: IfNotPresent
+    # Overridden by CI
+    tag: "latest"
+  service:
+    type: ClusterIP
+    port: 8080
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: myapp.com
+      paths:
+        - path: /api
+          pathType: Prefix
+          service: backend
+        - path: /
+          pathType: Prefix
+          service: frontend
+  tls: []
+  #  - secretName: myapp-tls
+  #    hosts:
+  #      - myapp.com
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
