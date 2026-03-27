@@ -204,6 +204,8 @@ jobs:
       url: https://review-${{ github.event.number }}.myapp.com
     steps:
       - uses: actions/checkout@v4
+      - name: Create k8s Kind Cluster
+        uses: helm/kind-action@v1
       - name: Install Helm
         uses: azure/setup-helm@v3
       - name: Deploy Review App
@@ -223,6 +225,8 @@ jobs:
       url: https://staging.myapp.com
     steps:
       - uses: actions/checkout@v4
+      - name: Create k8s Kind Cluster
+        uses: helm/kind-action@v1
       - name: Install Helm
         uses: azure/setup-helm@v3
       - name: Deploy to Staging
@@ -263,6 +267,8 @@ jobs:
       url: https://myapp.com
     steps:
       - uses: actions/checkout@v4
+      - name: Create k8s Kind Cluster
+        uses: helm/kind-action@v1
       - name: Install Helm
         uses: azure/setup-helm@v3
       - name: Deploy to Production
